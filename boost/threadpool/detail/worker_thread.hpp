@@ -59,8 +59,8 @@ namespace boost { namespace threadpool { namespace detail
     * \see function create_and_attach
     */
     worker_thread(shared_ptr<pool_type> const & pool)
-    : m_pool(pool),
-    m_start_barrier( 2 )
+      : m_pool(pool),
+      m_start_barrier(2)
     {
       assert(pool);
     }
@@ -78,7 +78,7 @@ namespace boost { namespace threadpool { namespace detail
     /*! Executes pool's tasks sequentially.
      */
     void run()
-    { 
+    {
       //self holder, used to prevent deletion of the worker
       shared_ptr<worker_thread> self(this->shared_from_this());
 
@@ -114,12 +114,12 @@ namespace boost { namespace threadpool { namespace detail
       shared_ptr<worker_thread> worker(new worker_thread(pool));
       if(worker)
       {
-	//Use the real pointer to the worker to prevent holding of the circular references
-	//to the worker in thread object
-	worker->m_thread.reset(new boost::thread(bind(&worker_thread::run, &*worker)));
+        //Use the real pointer to the worker to prevent holding of the circular references
+        //to the worker in thread object
+        worker->m_thread.reset(new boost::thread(bind(&worker_thread::run, &*worker)));
 
-	//Wait until shared pointer to this is acquired in run method
-	worker->m_start_barrier.wait();
+        //Wait until shared pointer to this is acquired in run method
+        worker->m_start_barrier.wait();
       }
     }
 
