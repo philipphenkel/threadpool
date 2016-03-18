@@ -132,6 +132,8 @@ namespace boost { namespace threadpool { namespace detail
     mutable condition m_worker_idle_or_terminated_event;	// A worker is idle or was terminated.
     mutable condition m_task_or_terminate_workers_event;  // Task is available OR total worker count should be reduced.
 
+    scoped_ptr<barrier> m_destruct_barrier;  // Barrier used to synchronize termination of all the workers
+
   public:
     /// Constructor.
     pool_core()
@@ -296,22 +298,24 @@ namespace boost { namespace threadpool { namespace detail
     void terminate_all_workers(bool const wait) volatile
     {
       pool_type* self = const_cast<pool_type*>(this);
-      recursive_mutex::scoped_lock lock(self->m_monitor);
+      {
+        //Lock should be local to prevent dead lock of all the worker threads
+        recursive_mutex::scoped_lock lock(self->m_monitor);
 
-      self->m_terminate_all_workers = true;
+        self->m_terminate_all_workers = true;
 
-      m_target_worker_count = 0;
-      self->m_task_or_terminate_workers_event.notify_all();
+        self->m_destruct_barrier.reset(new barrier(m_target_worker_count + 1));
+        m_target_worker_count = 0;
+        self->m_task_or_terminate_workers_event.notify_all();
+      }
 
       if(wait)
       {
-        while(m_active_worker_count > 0)
-        {
-          self->m_worker_idle_or_terminated_event.wait(lock);
-        }
+        //Wait for termination of all the workers
+        self->m_destruct_barrier->wait();
 
         for(typename std::vector<shared_ptr<worker_type> >::iterator it = self->m_terminated_workers.begin();
-          it != self->m_terminated_workers.end();
+        it != self->m_terminated_workers.end();
           ++it)
         {
           (*it)->join();
@@ -386,17 +390,21 @@ namespace boost { namespace threadpool { namespace detail
 
     void worker_destructed(shared_ptr<worker_type> worker) volatile
     {
-      locking_ptr<pool_type, recursive_mutex> lockedThis(*this, m_monitor);
-      m_worker_count--;
-      m_active_worker_count--;
-      lockedThis->m_worker_idle_or_terminated_event.notify_all();	
-
-      if(m_terminate_all_workers)
       {
-        lockedThis->m_terminated_workers.push_back(worker);
-      }
-    }
+        //Lock should be local to prevent dead lock of all the worker threads
+        locking_ptr<pool_type, recursive_mutex> lockedThis(*this, m_monitor);
+        m_worker_count--;
+        m_active_worker_count--;
+        lockedThis->m_worker_idle_or_terminated_event.notify_all();
 
+        if(m_terminate_all_workers)
+        {
+          lockedThis->m_terminated_workers.push_back(worker);
+        }
+      }
+
+      const_cast<pool_type*>(this)->m_destruct_barrier->wait();
+    }
 
     bool execute_task() volatile
     {
