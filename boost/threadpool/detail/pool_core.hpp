@@ -350,7 +350,7 @@ namespace boost { namespace threadpool { namespace detail
             m_worker_count++;
             m_active_worker_count++;	
           }
-          catch(thread_resource_error)
+          catch(const thread_resource_error&)
           {
             return false;
           }
